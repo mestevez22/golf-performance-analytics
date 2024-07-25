@@ -1,0 +1,256 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code.
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Cmd+Shift+Enter*.
+
+```{r}
+rm(list = ls())
+library(dplyr)
+library(ggplot2)
+library(caret)
+
+```
+
+```{r}
+#clean up data
+golf = read.csv('~/Desktop/Golf Stats Master.csv', header = TRUE)
+na_count = sum(is.na(golf))
+cols_to_remove = c(1:3, 14:16)
+golf_clean = golf[-cols_to_remove]
+
+#separate subset for just driver club
+golf_driver = subset(golf, Club.Type == 'd')
+golf_driver$Club.Type = as.factor(golf_driver$Club.Type)
+golf_driver <- golf_driver[-cols_to_remove]
+```
+
+```{r}
+# Calculate quartiles and IQR for each numerical variable
+Q1 <- apply(golf_clean, 2, quantile, probs = 0.25)
+Q3 <- apply(golf_clean, 2, quantile, probs = 0.75)
+IQR <- Q3 - Q1
+
+# Identify outliers based on IQR
+outliers <- golf_clean[apply(golf_clean, 1, function(x) any(x < Q1 - 1.5 * IQR | x > Q3 + 1.5 * IQR)), ]
+
+#subset with outliers removed
+golf_final <- golf_clean[apply(golf_clean, 1, function(x) all(x >= Q1 - 1.5 * IQR & x <= Q3 + 1.5 * IQR)), ]
+
+```
+
+```{r}
+# Function to perform Shapiro-Wilk test for normality
+shapiro_test_all <- function(x) {
+  shapiro_results <- sapply(x, function(column) shapiro.test(column)$p.value)
+  return(shapiro_results)
+}
+
+# Perform Shapiro-Wilk test for each column
+normality<- shapiro_test_all(golf_final)
+
+# Print the p-values for each column
+print(normality)
+
+# Create scatter plots for each predictor variable against the response variable
+scatter_plots <- lapply(names(golf_final)[-1], function(var) {
+  ggplot(golf_clean, aes_string(x = var, y = "Carry.Distance")) +
+    geom_point() +
+    geom_smooth(method = "lm") +
+    labs(x = var, y = "Carry.Distance", title = paste("Scatter Plot of", var, "vs. Carry.Distance"))
+})
+scatter_plots
+```
+
+```{r}
+cor_matrix <- cor(golf_final)
+
+# Visualize correlation matrix
+library(corrplot)
+corrplot(cor_matrix, method = "color")
+```
+
+```{r}
+
+
+#splitting into training and testing sets for df without outliers
+set.seed(123)
+trainIndex <- createDataPartition(golf_final$Carry.Distance, p = 0.7, list = FALSE)
+trainData <-golf_final[trainIndex, ]
+testData <- golf_final[-trainIndex, ]
+
+#data splits for df with outliers
+set.seed(456)
+trainIndex2 <- createDataPartition(golf_clean$Carry.Distance, p = 0.7, list = FALSE)
+trainData2 <-golf_clean[trainIndex2, ]
+testData2 <- golf_clean[-trainIndex2, ]
+
+#model without outliers
+lm_1 <- lm(Carry.Distance ~ Ball.Speed + Launch.Angle + Launch.Direction + Apex + Club.Speed, data = trainData)
+summary(lm_1)
+
+#model with outliers
+lm_2 <- lm(Carry.Distance ~ Ball.Speed + Launch.Angle + Launch.Direction + Apex + Club.Speed, data = trainData2)
+summary(lm_2)
+
+#removing launch direction
+lm_3 <- lm(Carry.Distance ~ Ball.Speed + Launch.Angle + Club.Speed + Apex, data = trainData)
+lm3_sum <- summary(lm_3)
+
+#with outliers 
+lm_4 <-lm(Carry.Distance ~ Ball.Speed + Launch.Angle + Club.Speed +Apex, data = trainData2)
+summary(lm_4)
+
+# Make predictions on the test set
+predictions <- predict(lm_3, newdata = testData)
+
+# Evaluate the model
+mse <- mean((testData$Carry.Distance - predictions)^2)
+rmse_lm <- sqrt(mse)
+rsquared <- cor(predictions, testData$Carry.Distance)^2
+
+# Print evaluation metrics
+cat("Mean Squared Error (MSE):", mse, "\n")
+cat("Root Mean Squared Error (RMSE):", rmse_lm, "\n")
+cat("R-squared:", rsquared, "\n")
+
+# Optionally, visualize the predicted vs. actual values
+plot(predictions, testData$Carry.Distance, xlab = "Predicted Carry Distance", ylab = "Actual Carry Distance")
+abline(0, 1, col = "red")  # add a 45-degree line for comparison
+
+
+
+# Extract coefficients and related information from the summary
+coefficients_table <- lm3_sum$coefficients
+
+# Convert the coefficients table to a data frame
+coefficients_df <- as.data.frame(coefficients_table)
+
+# Export the coefficients data frame to a CSV file
+write.csv(coefficients_df, file = "linear_regression_coefficients_final.csv")
+
+```
+
+```{r}
+lm3_sum
+```
+
+```{r}
+#poly_model <- lm(Carry.Distance ~ poly(Launch.Angle, 3, raw = TRUE), data = golf_final)
+#print(poly_model)
+
+```
+
+```{r}
+library(car)
+
+# Calculate VIF for predictor variables
+vif_values <- vif(lm_3)
+print(vif_values)
+
+
+# Fit linear regression model with interaction terms
+launch_ball_mod <- lm(Carry.Distance ~ Launch.Angle * Ball.Speed, data = golf_driver)
+summary(launch_ball_mod)
+
+```
+
+```{r}
+# Fit random forest model
+library(randomForest)
+
+
+rf_model <- randomForest(Carry.Distance ~ Ball.Speed + Club.Speed + Launch.Angle + Apex, data = trainData, importance = TRUE, ntree = 500)
+
+# Print the random forest model
+
+print(rf_model)
+
+
+# Predict on the test set
+predictions <- predict(rf_model, newdata = testData)
+
+# Calculate performance metrics (e.g., RMSE)
+actuals <- testData$Carry.Distance
+rmse <- sqrt(mean((predictions - actuals)^2))
+
+# Print RMSE
+print(paste("RMSE:", rmse))
+
+# Plot actual vs predicted values
+plot(actuals, predictions, main = "Actual vs Predicted Carry Distance",
+     xlab = "Actual Carry Distance", ylab = "Predicted Carry Distance",
+     pch = 19, col = "blue")
+abline(0, 1, col = "red")
+
+
+# Assess variable importance
+#importance(forest_model)
+varImpPlot(rf_model)
+
+
+tuned_rf <- tuneRF(trainData[,-which(names(trainData) == "Carry.Distance")], trainData$Carry.istance,
+                   stepFactor = 1.5, improve = 0.01, ntreeTry = 500)
+print(tuned_rf)
+```
+
+```{r}
+optimal <- 4
+tuned_rf_model <- randomForest(Carry.Distance ~ Ball.Speed + Club.Speed + Launch.Angle + Apex, data = trainData, mtry = optimal, importance = TRUE, ntree = 500)
+
+print(tuned_rf_model)
+importance(tuned_rf_model)
+varImpPlot(tuned_rf_model)
+
+predictions_tuned <- predict(tuned_rf_model, newdata = testData)
+rmse_tuned <- sqrt(mean((predictions_tuned - actuals)^2))
+print(paste("RMSE of Tuned Model:", rmse_tuned))
+
+# Plot actual vs predicted values
+plot(actuals, predictions_tuned, main = "Actual vs Predicted Carry Distance",
+     xlab = "Actual Carry Distance", ylab = "Predicted Carry Distance",
+     pch = 19, col = "blue")
+abline(0, 1, col = "red")
+
+
+
+```
+
+```{r}
+
+# Create df to store the model summary
+rfmodel_summary <- data.frame(
+  Model_Name = "Random Forest",
+  Optimal_mtry = optimal,
+  RMSE = sqrt(mean((predict(tuned_rf_model, testData) - testData$Carry.Distance)^2)),
+  R_Squared = cor(predict(tuned_rf_model, testData), testData$Carry.Distance)^2
+)
+
+# Extract the variable importance metrics
+importance_metrics <- as.data.frame(importance(tuned_rf_model))
+
+# Save the model summary and variable importance metrics to CSV
+write.csv(rfmodel_summary, "random_forest_summary.csv", row.names = FALSE)
+write.csv(importance_metrics, "variable_importance_master.csv", row.names = TRUE)
+
+```
+
+```{r}
+#ball_lm <- lm(Ball.Speed ~ Club.Speed + Launch.Angle, data = trainData)
+#summary(ball_lm)
+
+#ball_model <- randomForest(Ball.Speed ~ Club.Speed + Launch.Angle, data = trainData, importance = TRUE, ntree = 500)
+#print(ball_model)
+#importance(ball_model)
+```
+
+\`\`\`
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Cmd+Option+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Cmd+Shift+K* to preview the HTML file).
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
