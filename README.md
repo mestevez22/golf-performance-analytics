@@ -28,6 +28,6 @@ Tableau Dashboard
 ##TABLEAU DASHBOARD LINK###
 The data visualizations and dashboards created in Tableau are available in the following link:
 
-**https://public.tableau.com/views/KRGolfPerformanceAnalytics/MainDash?:language=en-US&publish=yes&:sid=&:redirect=auth&:display_count=n&:origin=viz_share_link **
+**[https://public.tableau.com/views/KRGolfPerformanceAnalytics/MainDash?:language=en-US&publish=yes&:sid=&:redirect=auth&:display_count=n&:origin=viz_share_link](https://public.tableau.com/views/KRGolfPerformanceAnalytics/ModelSummary?:language=en-US&publish=yes&:sid=&:redirect=auth&:display_count=n&:origin=viz_share_link) **
 
 Access the Tableau dashboard using the provided link to explore interactive visualizations of the analyzed data.
